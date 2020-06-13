@@ -269,6 +269,36 @@ void StreamSession::UpdateGamepads()
 #endif
 }
 
+void StreamSession::SendJSEvent(JSEvent_Struct event)
+{
+    ChiakiControllerState state = {};
+    state.buttons |= event.buttonA ? CHIAKI_CONTROLLER_BUTTON_CROSS : 0;
+    state.buttons |= event.buttonB ? CHIAKI_CONTROLLER_BUTTON_MOON : 0;
+    state.buttons |= event.buttonX ? CHIAKI_CONTROLLER_BUTTON_BOX : 0;
+    state.buttons |= event.buttonY ? CHIAKI_CONTROLLER_BUTTON_PYRAMID : 0;
+    state.buttons |= event.buttonLeft ? CHIAKI_CONTROLLER_BUTTON_DPAD_LEFT : 0;
+    state.buttons |= event.buttonRight ? CHIAKI_CONTROLLER_BUTTON_DPAD_RIGHT : 0;
+    state.buttons |= event.buttonUp ? CHIAKI_CONTROLLER_BUTTON_DPAD_UP : 0;
+    state.buttons |= event.buttonDown ? CHIAKI_CONTROLLER_BUTTON_DPAD_DOWN : 0;
+    state.buttons |= event.buttonL1 ? CHIAKI_CONTROLLER_BUTTON_L1 : 0;
+    state.buttons |= event.buttonR1 ? CHIAKI_CONTROLLER_BUTTON_R1 : 0;
+    state.buttons |= event.buttonL3 ? CHIAKI_CONTROLLER_BUTTON_L3 : 0;
+    state.buttons |= event.buttonR3 ? CHIAKI_CONTROLLER_BUTTON_R3 : 0;
+    state.buttons |= event.buttonStart ? CHIAKI_CONTROLLER_BUTTON_OPTIONS : 0;
+    state.buttons |= event.buttonSelect ? CHIAKI_CONTROLLER_BUTTON_SHARE : 0;
+    state.buttons |= event.buttonGuide ? CHIAKI_CONTROLLER_BUTTON_PS : 0;
+    state.l2_state = (uint8_t)(event.buttonL2 * 0xff);
+    state.r2_state = (uint8_t)(event.buttonR2 * 0xff);
+    state.left_x = static_cast<int16_t>(event.axisLeftX * 0x7fff);
+    state.left_y = static_cast<int16_t>(event.axisLeftY * 0x7fff);
+    state.right_x = static_cast<int16_t>(event.axisRightX * 0x7fff);
+    state.right_y = static_cast<int16_t>(event.axisRightY * 0x7fff);
+
+    chiaki_controller_state_or(&state, &state, &keyboard_state);
+	chiaki_session_set_controller_state(&session, &state);
+    
+}
+
 void StreamSession::SendFeedbackState()
 {
 	ChiakiControllerState state = {};

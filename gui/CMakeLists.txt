@@ -94,6 +94,15 @@ if(CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER)
 	target_compile_definitions(chiaki PRIVATE CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER)
 endif()
 
+#
+# Necessary libraries such as OpenCV and ZMQ
+#
+target_link_libraries(chiaki opencv_core)
+target_link_libraries(chiaki opencv_highgui)
+target_link_libraries(chiaki zmq)
+target_link_libraries(chiaki FFMPEG::swscale)
+#
+
 set_target_properties(chiaki PROPERTIES
 		MACOSX_BUNDLE TRUE
 		MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/MacOSXBundleInfo.plist.in"

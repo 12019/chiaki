@@ -25,6 +25,48 @@
 #include <QCoreApplication>
 #include <QAction>
 
+JSEventListener::JSEventListener(StreamSession *s)
+{
+    //
+	// Initialize ZMQ context and socket
+	// TODO: Use POLL instead of PAIR
+	//
+    z_context = zmq_ctx_new();    
+    z_socket = zmq_socket(z_context, ZMQ_PAIR);    
+    session = s;
+    stop = false;
+}
+
+void JSEventListener::run()
+{
+    int rc;
+    printf("binding localhost:5556");
+    rc = zmq_bind(z_socket, "tcp://*:5556");
+    assert(rc==0);
+    while (!stop)
+    {
+        zmq_msg_t msg;
+        rc = zmq_msg_init(&msg);
+        assert(rc==0);
+        rc = zmq_msg_recv(&msg, z_socket, 0);
+        if (rc != -1)
+        {
+            JSEvent_Struct event;
+            memcpy(&event, zmq_msg_data(&msg), zmq_msg_size(&msg));
+            session->SendJSEvent(event);
+//             std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Key press delay should be handled by the client
+        }
+    }
+}
+
+void JSEventListener::terminate()
+{
+    zmq_close(z_socket);
+    zmq_ctx_destroy(z_context);
+    stop = true;
+}
+
+
 StreamWindow::StreamWindow(const StreamSessionConnectInfo &connect_info, QWidget *parent)
 	: QMainWindow(parent)
 {
@@ -48,6 +90,11 @@ StreamWindow::StreamWindow(const StreamSessionConnectInfo &connect_info, QWidget
 StreamWindow::~StreamWindow()
 {
 	// make sure av_widget is always deleted before the session
+    if (jsEventListener) // Make sure thread is terminated
+    {
+        jsEventListener->terminate();
+        delete jsEventListener;
+    }    
 	delete av_widget;
 }
 
@@ -71,6 +118,10 @@ void StreamWindow::Init(const StreamSessionConnectInfo &connect_info)
 	connect(fullscreen_action, &QAction::triggered, this, &StreamWindow::ToggleFullscreen);
 
 	resize(connect_info.video_profile.width, connect_info.video_profile.height);
+    
+    jsEventListener = new JSEventListener(session);
+    jsEventListener->start();
+    
 	show();
 }
 
@@ -100,8 +151,10 @@ void StreamWindow::mouseReleaseEvent(QMouseEvent *event)
 
 void StreamWindow::closeEvent(QCloseEvent *)
 {
+    jsEventListener->terminate();
+    delete jsEventListener;
 	if(session)
-		session->Stop();
+		session->Stop();    
 }
 
 void StreamWindow::SessionQuit(ChiakiQuitReason reason, const QString &reason_str)

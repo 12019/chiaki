@@ -1,3 +1,21 @@
+## Use Chiaki and Photorealistic PS4 Games to Train and Test Machine Learning Models
+
+This branch enables Chiaki to forward video stream received from PS4 to another Application using ZeroMQ.
+
+We can then use Python to build machine learning models to either train on or process this video stream.
+
+The feature can be turned on/off in the Settings dialog.
+
+https://github.com/peidaqi/PyTorch-YOLOv3 uses the pre-trained yolov3 model for object detection in PS4 games.
+
+The above also includes a script that shows how to control PS4 games with Python scripts.
+
+
+![Object Detection with PS4 Games](https://github.com/peidaqi/PyTorch-YOLOv3/raw/master/ps4_streaming.jpg)
+
+
+---
+
 
 ![Chiaki Logo](assets/chiaki_wide.png)
 

@@ -26,6 +26,8 @@
 #include "sessionlog.h"
 #include "controllermanager.h"
 
+#include "jsevent.h"
+
 #include <QObject>
 #include <QImage>
 #include <QMouseEvent>
@@ -34,6 +36,7 @@
 #if CHIAKI_GUI_ENABLE_QT_GAMEPAD
 class QGamepad;
 #endif
+
 
 class QAudioOutput;
 class QIODevice;
@@ -112,6 +115,9 @@ class StreamSession : public QObject
 		void HandleKeyboardEvent(QKeyEvent *event);
 		void HandleMouseEvent(QMouseEvent *event);
 
+        
+        void SendJSEvent(JSEvent_Struct event);
+        
 	signals:
 		void CurrentImageUpdated();
 		void SessionQuit(ChiakiQuitReason reason, const QString &reason_str);

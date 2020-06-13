@@ -65,6 +65,12 @@ class Settings : public QObject
 		void SetLogVerbose(bool enabled)		{ settings.setValue("settings/log_verbose", enabled); }
 		uint32_t GetLogLevelMask();
 
+        bool GetDispatchServerState() const {return settings.value("settings/dispatch_server_on", true).toBool(); }
+        void SetDispatchServerState(bool enabled)  { settings.setValue("settings/dispatch_server_on", enabled); }
+        
+        QString GetDispatchServerAddr() const { return settings.value("settings/dispatch_server_addr", "tcp://localhost:5555").toString(); };
+        void SetDispatchServerAddr(QString addr) { settings.setValue("settings/dispatch_server_addr", addr); };
+        
 		ChiakiVideoResolutionPreset GetResolution() const;
 		void SetResolution(ChiakiVideoResolutionPreset resolution);
 
