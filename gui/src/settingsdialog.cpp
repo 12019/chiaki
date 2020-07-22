@@ -150,7 +150,7 @@ SettingsDialog::SettingsDialog(Settings *settings, QWidget *parent) : QDialog(pa
 	// Dispatch Server Settings
     
 	auto dispatch_server_settings_group_box = new QGroupBox(tr("Dispatch Server Settings"));
-	layout->addWidget(dispatch_server_settings_group_box);
+	root_layout->addWidget(dispatch_server_settings_group_box);
     auto dispatch_server_layout = new QFormLayout(); // 
 	dispatch_server_settings_group_box->setLayout(dispatch_server_layout);
 
