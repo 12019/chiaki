@@ -22,8 +22,6 @@
 
 #include "streamsession.h"
 
-#include "jsevent.h"
-
 class QLabel;
 class AVOpenGLWidget;
 
