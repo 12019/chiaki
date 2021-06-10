@@ -116,7 +116,7 @@ void ControllerManager::ControllerEvent(int device_id)
 QList<int> ControllerManager::GetAvailableControllers()
 {
 #ifdef CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
-	return available_controllers.toList();
+	return available_controllers.values();
 #else
 	return {};
 #endif
@@ -199,7 +199,8 @@ QString Controller::GetName()
 
 ChiakiControllerState Controller::GetState()
 {
-	ChiakiControllerState state = {};
+	ChiakiControllerState state;
+	chiaki_controller_state_set_idle(&state);
 #ifdef CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
 	if(!controller)
 		return state;
@@ -219,8 +220,8 @@ ChiakiControllerState Controller::GetState()
 	state.buttons |= SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_START) ? CHIAKI_CONTROLLER_BUTTON_OPTIONS : 0;
 	state.buttons |= SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_BACK) ? CHIAKI_CONTROLLER_BUTTON_SHARE : 0;
 	state.buttons |= SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_GUIDE) ? CHIAKI_CONTROLLER_BUTTON_PS : 0;
-	state.l2_state = (uint8_t)(SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT) >> 4);
-	state.r2_state = (uint8_t)(SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) >> 4);
+	state.l2_state = (uint8_t)(SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT) >> 7);
+	state.r2_state = (uint8_t)(SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) >> 7);
 	state.left_x = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX);
 	state.left_y = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY);
 	state.right_x = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTX);

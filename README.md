@@ -1,3 +1,21 @@
+## Use Chiaki and Photorealistic PS4 Games to Train and Test Machine Learning Models
+
+This branch enables Chiaki to forward video stream received from PS4 to another Application using ZeroMQ.
+
+We can then use Python to build machine learning models to either train on or process this video stream.
+
+The feature can be turned on/off in the Settings dialog.
+
+https://github.com/peidaqi/PyTorch-YOLOv3 uses the pre-trained yolov3 model for object detection in PS4 games.
+
+The above also includes a script that shows how to control PS4 games with Python scripts.
+
+
+![Object Detection with PS4 Games](https://github.com/peidaqi/PyTorch-YOLOv3/raw/master/ps4_streaming.jpg)
+
+
+---
+
 
 ![Chiaki Logo](assets/chiaki_wide.png)
 
@@ -8,7 +26,7 @@
 [![Travis Build Status](https://travis-ci.com/thestr4ng3r/chiaki.svg?branch=master)](https://travis-ci.com/thestr4ng3r/chiaki) [![AppVeyor Build status](https://ci.appveyor.com/api/projects/status/dnj9cmx5mmaaawer?svg=true)](https://ci.appveyor.com/project/thestr4ng3r/chiaki) [![builds.sr.ht Status](https://builds.sr.ht/~thestr4ng3r/chiaki.svg)](https://builds.sr.ht/~thestr4ng3r/chiaki?)
 
 Chiaki is a Free and Open Source Software Client for PlayStation 4 Remote Play
-for Linux, Android, macOS, Windows and potentially even more platforms.
+for Linux, FreeBSD, OpenBSD, Android, macOS, Windows and potentially even more platforms.
 
 ![Screenshot](assets/screenshot.png)
 
@@ -19,8 +37,9 @@ registration and wakeup of the console, is supported.
 The following features however are yet to be implemented:
 * Congestion Control
 * H264 Error Concealment (FEC and active error recovery however are implemented)
-* Touchpad support (Triggering the Touchpad Button is currently possible by pressing `T` on the keyboard)
+* Touchpad support (Triggering the Touchpad Button is currently possible from the keyboard though)
 * Rumble
+* Accelerometer/Gyroscope
 
 ## Installing
 
@@ -39,15 +58,16 @@ You can download them [here](https://github.com/thestr4ng3r/chiaki/releases).
 
 ### Building from Source
 
-Dependencies are CMake, Qt 5 with QtMultimedia, QtOpenGL and QtSvg, FFMPEG (libavcodec with H264 is enough), libopus, OpenSSL 1.1,
-protoc and the protobuf Python library (only used during compilation for Nanopb).
-Then, Chiaki builds just like any other CMake project:
+Dependencies are CMake, Qt 5 with QtMultimedia, QtOpenGL and QtSvg, FFMPEG (libavcodec with H264 is enough), libopus, OpenSSL 1.1, SDL 2,
+protoc and the protobuf Python library (only used during compilation for Nanopb). Then, Chiaki builds just like any other CMake project:
 ```
 git submodule update --init
 mkdir build && cd build
 cmake ..
 make
 ```
+
+For more detailed platform-specific instructions, see [doc/platform-build.md](doc/platform-build.md).
 
 ## Usage
 

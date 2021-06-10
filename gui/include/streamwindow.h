@@ -25,6 +25,26 @@
 class QLabel;
 class AVOpenGLWidget;
 
+
+#include <QThread>
+#include <zmq.h>
+#include <chrono>
+#include <thread>
+
+class JSEventListener: public QThread
+{
+    public:
+        JSEventListener(StreamSession *s);
+        void run();
+        void terminate();
+        
+    private:
+        void *z_context;
+        void *z_socket;
+        StreamSession *session;
+        bool stop;
+};
+
 class StreamWindow: public QMainWindow
 {
 	Q_OBJECT
@@ -39,6 +59,8 @@ class StreamWindow: public QMainWindow
 		AVOpenGLWidget *av_widget;
 
 		void Init(const StreamSessionConnectInfo &connect_info);
+        
+        JSEventListener *jsEventListener;
 
 	protected:
 		void keyPressEvent(QKeyEvent *event) override;

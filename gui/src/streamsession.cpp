@@ -21,20 +21,18 @@
 
 #include <chiaki/base64.h>
 
-#if CHIAKI_GUI_ENABLE_QT_GAMEPAD
-#include <QGamepadManager>
-#include <QGamepad>
-#endif
-
 #include <QKeyEvent>
 #include <QAudioOutput>
 
 #include <cstring>
 #include <chiaki/session.h>
 
+#define SETSU_UPDATE_INTERVAL_MS 4
+
 StreamSessionConnectInfo::StreamSessionConnectInfo(Settings *settings, QString host, QByteArray regist_key, QByteArray morning)
 {
 	key_map = settings->GetControllerMappingForDecoding();
+	hw_decode_engine = settings->GetHardwareDecodeEngine();
 	log_level_mask = settings->GetLogLevelMask();
 	log_file = CreateLogFilename();
 	video_profile = settings->GetVideoProfile();
@@ -48,15 +46,15 @@ static void AudioSettingsCb(uint32_t channels, uint32_t rate, void *user);
 static void AudioFrameCb(int16_t *buf, size_t samples_count, void *user);
 static bool VideoSampleCb(uint8_t *buf, size_t buf_size, void *user);
 static void EventCb(ChiakiEvent *event, void *user);
+#if CHIAKI_GUI_ENABLE_SETSU
+static void SessionSetsuCb(SetsuEvent *event, void *user);
+#endif
 
 StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObject *parent)
 	: QObject(parent),
 	log(this, connect_info.log_level_mask, connect_info.log_file),
-#if CHIAKI_GUI_ENABLE_QT_GAMEPAD
-	gamepad(nullptr),
-#endif
 	controller(nullptr),
-	video_decoder(log.GetChiakiLog()),
+	video_decoder(connect_info.hw_decode_engine, log.GetChiakiLog()),
 	audio_output(nullptr),
 	audio_io(nullptr)
 {
@@ -77,7 +75,7 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 		throw ChiakiException("Morning invalid");
 	memcpy(chiaki_connect_info.morning, connect_info.morning.constData(), sizeof(chiaki_connect_info.morning));
 
-	memset(&keyboard_state, 0, sizeof(keyboard_state));
+	chiaki_controller_state_set_idle(&keyboard_state);
 
 	ChiakiErrorCode err = chiaki_session_init(&session, &chiaki_connect_info, log.GetChiakiLog());
 	if(err != CHIAKI_ERR_SUCCESS)
@@ -91,11 +89,18 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 	chiaki_session_set_video_sample_cb(&session, VideoSampleCb, this);
 	chiaki_session_set_event_cb(&session, EventCb, this);
 
-#if CHIAKI_GUI_ENABLE_QT_GAMEPAD
-	connect(QGamepadManager::instance(), &QGamepadManager::connectedGamepadsChanged, this, &StreamSession::UpdateGamepads);
-#endif
 #if CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
 	connect(ControllerManager::GetInstance(), &ControllerManager::AvailableControllersUpdated, this, &StreamSession::UpdateGamepads);
+#endif
+
+#if CHIAKI_GUI_ENABLE_SETSU
+	chiaki_controller_state_set_idle(&setsu_state);
+	setsu = setsu_new();
+	auto timer = new QTimer(this);
+	connect(timer, &QTimer::timeout, this, [this]{
+		setsu_poll(setsu, SessionSetsuCb, this);
+	});
+	timer->start(SETSU_UPDATE_INTERVAL_MS);
 #endif
 
 	key_map = connect_info.key_map;
@@ -107,11 +112,11 @@ StreamSession::~StreamSession()
 	chiaki_session_join(&session);
 	chiaki_session_fini(&session);
 	chiaki_opus_decoder_fini(&opus_decoder);
-#if CHIAKI_GUI_ENABLE_QT_GAMEPAD
-	delete gamepad;
-#endif
 #if CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
 	delete controller;
+#endif
+#if CHIAKI_GUI_ENABLE_SETSU
+	setsu_free(setsu);
 #endif
 }
 
@@ -165,28 +170,28 @@ void StreamSession::HandleKeyboardEvent(QKeyEvent *event)
 			keyboard_state.r2_state = press_event ? 0xff : 0;
 			break;
 		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_RIGHT_Y_UP):
-			keyboard_state.right_y = press_event ? -0x3fff : 0;
+			keyboard_state.right_y = press_event ? -0x7fff : 0;
 			break;
 		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_RIGHT_Y_DOWN):
-			keyboard_state.right_y = press_event ? 0x3fff : 0;
+			keyboard_state.right_y = press_event ? 0x7fff : 0;
 			break;
 		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_RIGHT_X_UP):
-			keyboard_state.right_x = press_event ? 0x3fff : 0;
+			keyboard_state.right_x = press_event ? 0x7fff : 0;
 			break;
 		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_RIGHT_X_DOWN):
-			keyboard_state.right_x = press_event ? -0x3fff : 0;
+			keyboard_state.right_x = press_event ? -0x7fff : 0;
 			break;
 		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_LEFT_Y_UP):
-			keyboard_state.left_y = press_event ? -0x3fff : 0;
+			keyboard_state.left_y = press_event ? -0x7fff : 0;
 			break;
 		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_LEFT_Y_DOWN):
-			keyboard_state.left_y = press_event ? 0x3fff : 0;
+			keyboard_state.left_y = press_event ? 0x7fff : 0;
 			break;
 		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_LEFT_X_UP):
-			keyboard_state.left_x = press_event ? 0x3fff : 0;
+			keyboard_state.left_x = press_event ? 0x7fff : 0;
 			break;
 		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_LEFT_X_DOWN):
-			keyboard_state.left_x = press_event ? -0x3fff : 0;
+			keyboard_state.left_x = press_event ? -0x7fff : 0;
 			break;
 		default:
 			if(press_event)
@@ -201,46 +206,6 @@ void StreamSession::HandleKeyboardEvent(QKeyEvent *event)
 
 void StreamSession::UpdateGamepads()
 {
-#if CHIAKI_GUI_ENABLE_QT_GAMEPAD
-	if(!gamepad || !gamepad->isConnected())
-	{
-		if(gamepad)
-		{
-			CHIAKI_LOGI(log.GetChiakiLog(), "Gamepad %d disconnected", gamepad->deviceId());
-			delete gamepad;
-			gamepad = nullptr;
-		}
-		const auto connected_pads = QGamepadManager::instance()->connectedGamepads();
-		if(!connected_pads.isEmpty())
-		{
-			gamepad = new QGamepad(connected_pads[0], this);
-			CHIAKI_LOGI(log.GetChiakiLog(), "Gamepad %d connected: \"%s\"", connected_pads[0], gamepad->name().toLocal8Bit().constData());
-			connect(gamepad, &QGamepad::buttonAChanged, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::buttonBChanged, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::buttonXChanged, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::buttonYChanged, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::buttonLeftChanged, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::buttonRightChanged, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::buttonUpChanged, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::buttonDownChanged, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::buttonL1Changed, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::buttonR1Changed, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::buttonL1Changed, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::buttonL2Changed, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::buttonL3Changed, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::buttonR3Changed, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::buttonStartChanged, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::buttonSelectChanged, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::buttonGuideChanged, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::axisLeftXChanged, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::axisLeftYChanged, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::axisRightXChanged, this, &StreamSession::SendFeedbackState);
-			connect(gamepad, &QGamepad::axisRightYChanged, this, &StreamSession::SendFeedbackState);
-		}
-	}
-
-	SendFeedbackState();
-#endif
 #if CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
 	if(!controller || !controller->IsConnected())
 	{
@@ -268,40 +233,48 @@ void StreamSession::UpdateGamepads()
 #endif
 }
 
+void StreamSession::SendJSEvent(JSEvent_Struct event)
+{
+    ChiakiControllerState state = {};
+    state.buttons |= event.buttonA ? CHIAKI_CONTROLLER_BUTTON_CROSS : 0;
+    state.buttons |= event.buttonB ? CHIAKI_CONTROLLER_BUTTON_MOON : 0;
+    state.buttons |= event.buttonX ? CHIAKI_CONTROLLER_BUTTON_BOX : 0;
+    state.buttons |= event.buttonY ? CHIAKI_CONTROLLER_BUTTON_PYRAMID : 0;
+    state.buttons |= event.buttonLeft ? CHIAKI_CONTROLLER_BUTTON_DPAD_LEFT : 0;
+    state.buttons |= event.buttonRight ? CHIAKI_CONTROLLER_BUTTON_DPAD_RIGHT : 0;
+    state.buttons |= event.buttonUp ? CHIAKI_CONTROLLER_BUTTON_DPAD_UP : 0;
+    state.buttons |= event.buttonDown ? CHIAKI_CONTROLLER_BUTTON_DPAD_DOWN : 0;
+    state.buttons |= event.buttonL1 ? CHIAKI_CONTROLLER_BUTTON_L1 : 0;
+    state.buttons |= event.buttonR1 ? CHIAKI_CONTROLLER_BUTTON_R1 : 0;
+    state.buttons |= event.buttonL3 ? CHIAKI_CONTROLLER_BUTTON_L3 : 0;
+    state.buttons |= event.buttonR3 ? CHIAKI_CONTROLLER_BUTTON_R3 : 0;
+    state.buttons |= event.buttonStart ? CHIAKI_CONTROLLER_BUTTON_OPTIONS : 0;
+    state.buttons |= event.buttonSelect ? CHIAKI_CONTROLLER_BUTTON_SHARE : 0;
+    state.buttons |= event.buttonGuide ? CHIAKI_CONTROLLER_BUTTON_PS : 0;
+    state.l2_state = (uint8_t)(event.buttonL2 * 0xff);
+    state.r2_state = (uint8_t)(event.buttonR2 * 0xff);
+    state.left_x = static_cast<int16_t>(event.axisLeftX * 0x7fff);
+    state.left_y = static_cast<int16_t>(event.axisLeftY * 0x7fff);
+    state.right_x = static_cast<int16_t>(event.axisRightX * 0x7fff);
+    state.right_y = static_cast<int16_t>(event.axisRightY * 0x7fff);
+
+    chiaki_controller_state_or(&state, &state, &keyboard_state);
+	chiaki_session_set_controller_state(&session, &state);
+    
+}
+
 void StreamSession::SendFeedbackState()
 {
-	ChiakiControllerState state = {};
-
-#if CHIAKI_GUI_ENABLE_QT_GAMEPAD
-	if(gamepad)
-	{
-		state.buttons |= gamepad->buttonA() ? CHIAKI_CONTROLLER_BUTTON_CROSS : 0;
-		state.buttons |= gamepad->buttonB() ? CHIAKI_CONTROLLER_BUTTON_MOON : 0;
-		state.buttons |= gamepad->buttonX() ? CHIAKI_CONTROLLER_BUTTON_BOX : 0;
-		state.buttons |= gamepad->buttonY() ? CHIAKI_CONTROLLER_BUTTON_PYRAMID : 0;
-		state.buttons |= gamepad->buttonLeft() ? CHIAKI_CONTROLLER_BUTTON_DPAD_LEFT : 0;
-		state.buttons |= gamepad->buttonRight() ? CHIAKI_CONTROLLER_BUTTON_DPAD_RIGHT : 0;
-		state.buttons |= gamepad->buttonUp() ? CHIAKI_CONTROLLER_BUTTON_DPAD_UP : 0;
-		state.buttons |= gamepad->buttonDown() ? CHIAKI_CONTROLLER_BUTTON_DPAD_DOWN : 0;
-		state.buttons |= gamepad->buttonL1() ? CHIAKI_CONTROLLER_BUTTON_L1 : 0;
-		state.buttons |= gamepad->buttonR1() ? CHIAKI_CONTROLLER_BUTTON_R1 : 0;
-		state.buttons |= gamepad->buttonL3() ? CHIAKI_CONTROLLER_BUTTON_L3 : 0;
-		state.buttons |= gamepad->buttonR3() ? CHIAKI_CONTROLLER_BUTTON_R3 : 0;
-		state.buttons |= gamepad->buttonStart() ? CHIAKI_CONTROLLER_BUTTON_OPTIONS : 0;
-		state.buttons |= gamepad->buttonSelect() ? CHIAKI_CONTROLLER_BUTTON_SHARE : 0;
-		state.buttons |= gamepad->buttonGuide() ? CHIAKI_CONTROLLER_BUTTON_PS : 0;
-		state.l2_state = (uint8_t)(gamepad->buttonL2() * 0xff);
-		state.r2_state = (uint8_t)(gamepad->buttonR2() * 0xff);
-		state.left_x = static_cast<int16_t>(gamepad->axisLeftX() * 0x7fff);
-		state.left_y = static_cast<int16_t>(gamepad->axisLeftY() * 0x7fff);
-		state.right_x = static_cast<int16_t>(gamepad->axisRightX() * 0x7fff);
-		state.right_y = static_cast<int16_t>(gamepad->axisRightY() * 0x7fff);
-	}
-#endif
+	ChiakiControllerState state;
+	chiaki_controller_state_set_idle(&state);
 
 #if CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
 	if(controller)
 		state = controller->GetState();
+#endif
+
+#if CHIAKI_GUI_ENABLE_SETSU
+	chiaki_controller_state_or(&state, &state, &setsu_state);
 #endif
 
 	chiaki_controller_state_or(&state, &state, &keyboard_state);
@@ -355,6 +328,8 @@ void StreamSession::Event(ChiakiEvent *event)
 {
 	switch(event->type)
 	{
+		case CHIAKI_EVENT_CONNECTED:
+			break;
 		case CHIAKI_EVENT_QUIT:
 			emit SessionQuit(event->quit.reason, event->quit.reason_str ? QString::fromUtf8(event->quit.reason_str) : QString());
 			break;
@@ -363,6 +338,69 @@ void StreamSession::Event(ChiakiEvent *event)
 			break;
 	}
 }
+
+#if CHIAKI_GUI_ENABLE_SETSU
+void StreamSession::HandleSetsuEvent(SetsuEvent *event)
+{
+	if(!setsu)
+		return;
+	switch(event->type)
+	{
+		case SETSU_EVENT_DEVICE_ADDED:
+			setsu_connect(setsu, event->path);
+			break;
+		case SETSU_EVENT_DEVICE_REMOVED:
+			for(auto it=setsu_ids.begin(); it!=setsu_ids.end();)
+			{
+				if(it.key().first == event->path)
+				{
+					chiaki_controller_state_stop_touch(&setsu_state, it.value());
+					setsu_ids.erase(it++);
+				}
+				else
+					it++;
+			}
+			SendFeedbackState();
+			break;
+		case SETSU_EVENT_TOUCH_DOWN:
+			break;
+		case SETSU_EVENT_TOUCH_UP:
+			for(auto it=setsu_ids.begin(); it!=setsu_ids.end(); it++)
+			{
+				if(it.key().first == setsu_device_get_path(event->dev) && it.key().second == event->tracking_id)
+				{
+					chiaki_controller_state_stop_touch(&setsu_state, it.value());
+					setsu_ids.erase(it);
+					break;
+				}
+			}
+			SendFeedbackState();
+			break;
+		case SETSU_EVENT_TOUCH_POSITION: {
+			QPair<QString, SetsuTrackingId> k =  { setsu_device_get_path(event->dev), event->tracking_id };
+			auto it = setsu_ids.find(k);
+			if(it == setsu_ids.end())
+			{
+				int8_t cid = chiaki_controller_state_start_touch(&setsu_state, event->x, event->y);
+				if(cid >= 0)
+					setsu_ids[k] = (uint8_t)cid;
+				else
+					break;
+			}
+			else
+				chiaki_controller_state_set_touch_pos(&setsu_state, it.value(), event->x, event->y);
+			SendFeedbackState();
+			break;
+		}
+		case SETSU_EVENT_BUTTON_DOWN:
+			setsu_state.buttons |= CHIAKI_CONTROLLER_BUTTON_TOUCHPAD;
+			break;
+		case SETSU_EVENT_BUTTON_UP:
+			setsu_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_TOUCHPAD;
+			break;
+	}
+}
+#endif
 
 class StreamSessionPrivate
 {
@@ -375,6 +413,9 @@ class StreamSessionPrivate
 		static void PushAudioFrame(StreamSession *session, int16_t *buf, size_t samples_count)	{ session->PushAudioFrame(buf, samples_count); }
 		static void PushVideoSample(StreamSession *session, uint8_t *buf, size_t buf_size)		{ session->PushVideoSample(buf, buf_size); }
 		static void Event(StreamSession *session, ChiakiEvent *event)							{ session->Event(event); }
+#if CHIAKI_GUI_ENABLE_SETSU
+		static void HandleSetsuEvent(StreamSession *session, SetsuEvent *event)					{ session->HandleSetsuEvent(event); }
+#endif
 };
 
 static void AudioSettingsCb(uint32_t channels, uint32_t rate, void *user)
@@ -401,3 +442,11 @@ static void EventCb(ChiakiEvent *event, void *user)
 	auto session = reinterpret_cast<StreamSession *>(user);
 	StreamSessionPrivate::Event(session, event);
 }
+
+#if CHIAKI_GUI_ENABLE_SETSU
+static void SessionSetsuCb(SetsuEvent *event, void *user)
+{
+	auto session = reinterpret_cast<StreamSession *>(user);
+	StreamSessionPrivate::HandleSetsuEvent(session, event);
+}
+#endif
